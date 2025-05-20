@@ -1,9 +1,7 @@
 squid2radius
 ============
 
-squid2radius analyzes your squid `access.log` file, and reports usage information to a RADIUS server using `Accounting-Request` as defined in RFC 2866.
-
-After analyzing is finished, it calls squid to rotate your log file so that no lines will be counted more than once.
+squid2radius analyzes entries generated in the past 60 minutes (via `--seek_time` argument) in your squid `access.log` file, and reports usage information to a RADIUS server using `Accounting-Request` as defined in RFC 2866.
 
 Installation
 ------------
@@ -11,18 +9,36 @@ Installation
 ### Clone Git repo
 
 ```bash
-git clone git://github.com/jiehanzheng/squid2radius.git
+git clone git://github.com/tracyhatemice/squid2radius.git
 ```
 
-### Install dependencies
+### Install dependencies within virtual environmanet
 
 ```bash
-# install pip for python2, command varies if you are on a different OS
-sudo pacman -S python2-pip
-
-# install pyrad, command varies if you are on a different OS
-sudo pip2 install pyrad hurry.filesize
+cd squid2radius
+python3 -m venv venv
+source venv/bin/activate
+# requires pyrad and hurry.filesize libraries to be installed
+python3 -m pip install pyrad hurry.filesize
 ```
+
+### Setup cron job
+
+Set up a cron job that runs every hour.  **Need necessary permission to read squid access log.**
+
+```bash
+0 * * * * /usr/bin/env bash -c 'cd /home/user/squid2radius && source /home/user/squid2radius/venv/bin/activate && python3 ./squid2radius.py radius_server radius_secret' > /dev/null 2>&1
+```
+
+Upgrading to v2.0
+-----------------
+
+### New behaviour
+
+* add `Calling-Station-ID` attribute to the accounting data.
+* add `--seek_time` argument, defaults to 60 minutes, which is helpful if the cronjob is set to run every hour.
+* del `--no-rotation` arguement, add `--rotation` arguement, and defaults not to rotate squid access log.
+* set `--logfile_path` to optional, defaults to `/var/log/squid/access.log`
 
 Upgrading to v1.0
 -----------------
@@ -37,17 +53,23 @@ Usage
 -----
 
 ```
-usage: squid2radius.py [-h] [--version] [-p RADIUS_ACCT_PORT]
-                       [--radius-nasid RADIUS_NASID] [--squid-path SQUID_PATH]
-                       [--exclude-pattern EXCLUDE_PATTERN] [--dry-run]
-                       [--no-rotation]
-                       logfile_path radius_server radius_secret
+Usage: usage: squid2radius.py [-h] \
+                              [--version] \
+                              [--logfile_path LOGFILE_PATH] \
+                              [--seek_time SEEK_TIME] \
+                              [-p RADIUS_ACCT_PORT] \
+                              [--radius-nasid RADIUS_NASID] \
+                              [--squid-path SQUID_PATH] \
+                              [--exclude-pattern EXCLUDE_PATTERN] \
+                              [--dry-run] \
+                              [--rotation] \
+                              radius_server radius_secret
 ```
 
 For instance, run like this if you have access log file at `/var/log/squid/access.log`, RADIUS server running at `localhost` with secret set to `testing123`:
 
 ```bash
-sudo python2 squid2radius.py /var/log/squid/access.log localhost testing123
+sudo python3 squid2radius.py localhost testing123
 ```
 
 It is certainly a good idea to make a cron job for this.
@@ -62,12 +84,24 @@ If for some reason you need to prevent usage information of certain user from be
 
 If the script is called with this argument, no data will be sent to the server.
 
-### --no-rotation
+### --seek_time
 
-By default squid2radius calls `squid -k rotate` to make squid rotate your log files right after we are done counting usage data, in order to ensure usage data accuracy by not counting any log lines more than once next time you run it.  If this is troublesome in your setup, you can add `--no-rotation` argument to disable this behavior.
+The script will read the squid access log file (using `--logfile_path` argument, defaults to `/var/log/squid/access.log`), filter the entries based on the specified time range (`--seek_time`), and then send the accounting data to the RADIUS server using the pyrad library.  
+
+### --rotation
+
+Generally, rotating squid access log is not required as the script will only process the log entries within the specified time range (using `--seek_time` argument, defaults to 60, meaning read logs generated in the past 60 minutes.) 
+
+If needed, you can add `--rotation` argument, so that squid2radius will call `squid -k rotate` to make squid rotate access log right after done counting usage data.  This may help to ensure usage data accuracy by not counting any log lines more than once next time you run it.
 
 Note
 ----
 
 The script assumes that you are using the default [Squid native access.log format](http://wiki.squid-cache.org/Features/LogFormat#squid) on first ten columns of your log file.  If you need custom columns, add them after the default ones.
 
+Author, Copyright
+----
+
+squid2radius was written by [jiehanzheng](https://github.com/jiehanzheng/squid2radius) and updated for python3 compatibility among other minor changes by [tracyhatemice](https://github.com/tracyhatemice/squid2radius).
+
+Copyright an license information can be found in the LICENSE.txt file.
