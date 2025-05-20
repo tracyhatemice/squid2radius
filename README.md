@@ -9,7 +9,7 @@ Installation
 ### Clone Git repo
 
 ```bash
-git clone git://github.com/tracyhatemice/squid2radius.git
+git clone https://github.com/tracyhatemice/squid2radius.git
 ```
 
 ### Install dependencies within virtual environmanet
@@ -22,28 +22,28 @@ source venv/bin/activate
 python3 -m pip install pyrad hurry.filesize
 ```
 
-### Setup cron job
+### Setup cronjob
 
-Set up a cron job that runs every hour.  **Need necessary permission to read squid access log.**
+Set up a cronjob that runs every hour.  **Need necessary permission to read squid access log.**
 
 ```bash
 0 * * * * /usr/bin/env bash -c 'cd /home/user/squid2radius && source /home/user/squid2radius/venv/bin/activate && python3 ./squid2radius.py radius_server radius_secret' > /dev/null 2>&1
 ```
 
-Upgrading to v2.0
+Changelog
 -----------------
+### v2.0
 
-### New behaviour
+#### New behaviour
 
 * add `Calling-Station-ID` attribute to the accounting data.
-* add `--seek_time` argument, defaults to 60 minutes, which is helpful if the cronjob is set to run every hour.
-* del `--no-rotation` arguement, add `--rotation` arguement, and defaults not to rotate squid access log.
+* add `--seek_time` argument, defaults to 60 minutes, which is helpful if the cronjob is set to run every hour.  See usage.
+* replace `--no-rotation` arguement with `--rotation` arguement, and defaults not to rotate squid access log.
 * set `--logfile_path` to optional, defaults to `/var/log/squid/access.log`
 
-Upgrading to v1.0
------------------
+### v1.0
 
-### New dependency `hurry.filesize`
+#### New dependency `hurry.filesize`
 
 Note that an dependency `hurry.filesize` is required since Version 1.0.  Run 
 `sudo pip2 install hurry.filesize` to install it.
@@ -86,7 +86,7 @@ If the script is called with this argument, no data will be sent to the server.
 
 ### --seek_time
 
-The script will read the squid access log file (using `--logfile_path` argument, defaults to `/var/log/squid/access.log`), filter the entries based on the specified time range (`--seek_time`), and then send the accounting data to the RADIUS server using the pyrad library.  
+The script will read the squid access log file (using `--logfile_path` argument, defaults to `/var/log/squid/access.log`), filter the entries based on the specified time range (`--seek_time`), and then send the accounting data to the RADIUS server using the pyrad library.  Could be handy in combination with hourly cronjob.
 
 ### --rotation
 
