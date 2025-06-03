@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import socket
 import sys
 import argparse
 import datetime
@@ -21,10 +22,10 @@ parser = argparse.ArgumentParser(description='Analyze squid log by user ' \
                                              'and upload result to RADIUS ' \
                                              'server.')
 parser.add_argument('--version', action='version', version='%(prog)s 2.0')
-parser.add_argument('--logfile_path', help='logfile to analyze', default='/var/log/squid/access.log')
+parser.add_argument('--logfile-path', help='logfile to analyze', default='/var/log/squid/access.log')
 parser.add_argument('radius_server')
 parser.add_argument('radius_secret')
-parser.add_argument('--seek_time', help='time to seek in the log file, ' \
+parser.add_argument('--seek-time', help='time to seek in the log file, ' \
                                                 'in minutes. Defaults to 60 minutes',
                                                 default='60', type=int)
 parser.add_argument('-p', '--radius-acct-port', default='1813')
@@ -40,17 +41,28 @@ parser.add_argument('--rotation', help='rotate squid log files',
                                      action='store_true')
 args = parser.parse_args()
 
+def get_called_station_ip(dest_ip):
+    """Get the local IP address that would route to dest_ip."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect((dest_ip, 80))  # port 80 to simulate HTTP
+        called_station_ip = s.getsockname()[0]
+    finally:
+        s.close()
+    return called_station_ip
+
 logfile = open(args.logfile_path)
 # print(logfile)
 
 sys.stdout.write("Analyzing.")
 sum_bytes = defaultdict(lambda: defaultdict(int))
+sum_session = defaultdict(lambda: defaultdict(int))
 
 for i, line in enumerate(logfile):
     if i % 10000 == 0: sys.stdout.write('.'); sys.stdout.flush()
   
     # http://wiki.squid-cache.org/Features/LogFormat
-    log_time, _, log_ip, code_status, num_bytes, _, _, rfc931, _, _ = line.split()[:10]
+    log_time, elapsed, log_ip, code_status, num_bytes, _, _, rfc931, _, _ = line.split()[:10]
 
     if abs(datetime.datetime.now() - datetime.timedelta(minutes=args.seek_time) - datetime.datetime.fromtimestamp(float(log_time)) ) > datetime.timedelta(minutes=args.seek_time): continue
     
@@ -64,6 +76,11 @@ for i, line in enumerate(logfile):
         sum_bytes[rfc931][log_ip] += int(num_bytes)
     except KeyError:
         sum_bytes[rfc931][log_ip] = int(num_bytes)
+
+    try:
+        sum_session[rfc931][log_ip] += int(elapsed)
+    except KeyError:
+        sum_session[rfc931][log_ip] = int(elapsed)
 
 print()
 print("Sending..." if not args.dry_run else "Dry run...") 
@@ -87,6 +104,13 @@ for username, total_bytes in sum_bytes.items():
         except NameError:
             sys.stdout.write(str(bytes_per_ip))
 
+        if int(sum_session[username][ip] / 1000) < 3600:
+            session_time = int(sum_session[username][ip] / 1000)
+        else:
+            session_time = 3600
+        
+        sys.stdout.write('\t' + str(session_time) + "(" + str(int(sum_session[username][ip] / 1000)) + ")")
+              
         if args.dry_run:
             sys.stdout.write("\n")
             continue
@@ -108,6 +132,7 @@ for username, total_bytes in sum_bytes.items():
             req['Acct-Session-Id'] = session_id
             req['Acct-Status-Type'] = 1  # Start
             req['Calling-Station-Id'] = ip
+            req['Called-Station-Id'] = get_called_station_ip(args.radius_server)
             req['Connect-Info'] = "Squid"
 
             reply = srv.SendPacket(req)
@@ -117,13 +142,10 @@ for username, total_bytes in sum_bytes.items():
             sys.stdout.write('.')
             sys.stdout.flush()
 
-            req = srv.CreateAcctPacket()
-            req['User-Name'] = username
-            req['NAS-Identifier'] = args.radius_nasid
-            req['Acct-Session-Id'] = session_id
             req['Acct-Status-Type'] = 2  # Stop
             req['Acct-Output-Octets'] = bytes_per_ip
-            req['Calling-Station-Id'] = ip
+            req['Acct-Session-Time'] = session_time
+            req['Acct-Terminate-Cause'] = "User-Request"
 
             reply = srv.SendPacket(req)
             if not reply.code == pyrad.packet.AccountingResponse:
